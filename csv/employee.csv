@@ -1,0 +1,10 @@
+name,age,salary
+Alice,45,75000
+Bob,38,52000
+Charlie,50,82000
+Daisy,41,90000
+Eve,29,40000
+Frank,44,105000
+Gina,55,87000
+Hank,,65000
+Ivy,48,abc
