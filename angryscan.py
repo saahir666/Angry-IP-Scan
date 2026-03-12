@@ -1,183 +1,120 @@
 #!/usr/bin/env python3
+"""
+🚀 ANGRYSCAN v3.0 - ULTIMATE NMAP SUITE
+Permission-proof, Kali-optimized, Production-ready
+"""
 
 import subprocess
 import sys
 import os
 import argparse
-import ipaddress
-import threading
 import time
-import json
 from pathlib import Path
+import getpass
 
-class AdvancedNmapScanner:
-    def __init__(self, target, output_dir="nmap_recon"):
+class AngryScan:
+    def __init__(self, target, output_dir=None):
         self.target = target
-        self.output_dir = Path(output_dir)
-        self.output_dir.mkdir(exist_ok=True)
-        
-        # Timestamps
+        user = getpass.getuser()
+        self.output_dir = Path(f"/home/{user}/{output_dir or 'angry_recon'}")
+        self.output_dir.mkdir(exist_ok=True, parents=True)
         self.timestamp = time.strftime("%Y%m%d_%H%M%S")
         
-        print(f"🚀 [Saahir666] Advanced Nmap Suite Initialized")
-        print(f"🎯 Target: {target}")
-        print(f"📁 Output: {output_dir}/")
+        # Fix permissions
+        os.chmod(str(self.output_dir), 0o755)
         
-    def run_nmap(self, args, name, description):
-        """Execute nmap command with all output formats"""
-        cmd = ["nmap"] + args + [
-            "-oA", f"{self.output_dir}/{name}_{self.timestamp}"
+        print(f"🔥 ANGRYSCAN v3.0 INITIALIZED")
+        print(f"🎯 Target: {target}")
+        print(f"📁 Output: {self.output_dir}")
+    
+    def cmd(self, cmd_args, name, timeout=300):
+        """Universal command runner - handles sudo + perms"""
+        full_cmd = ["sudo", "nmap"] + cmd_args + [
+            "-oN", f"{self.output_dir}/{name}_{self.timestamp}.nmap",
+            "-oG", f"{self.output_dir}/{name}_{self.timestamp}.gnmap"
         ]
         
-        print(f"\n🔍 [{name.upper()}] {description}")
-        print(f"   {' '.join(cmd)}")
+        print(f"\n[{name.upper()}] {' '.join(full_cmd[-5:])} {self.target}")
         
         try:
-            result = subprocess.run(cmd, capture_output=True, text=True, timeout=300)
-            print(f"✅ [{name.upper()}] Complete: {name}_{self.timestamp}.nmap")
-            return True
+            result = subprocess.run(
+                full_cmd, 
+                timeout=timeout,
+                capture_output=True,
+                text=True
+            )
+            
+            if result.returncode == 0:
+                print(f"✅ {name.upper()} OK")
+                return True
+            else:
+                print(f"⚠️  {name.upper()} WARN: {result.stderr[:100]}")
+                return False
+                
         except subprocess.TimeoutExpired:
-            print(f"⚠️  [{name.upper()}] TIMEOUT - skipping")
-            return False
-        except Exception as e:
-            print(f"❌ [{name.upper()}] ERROR: {e}")
+            print(f"⏰ {name.upper()} TIMEOUT")
             return False
     
-    def discover_network(self):
-        """Auto-discover network range"""
-        print("\n🌐 AUTO-NETWORK DISCOVERY")
-        
-        # Try common interfaces
-        interfaces = ["eth0", "wlan0", "enp0s3", "wlp3s0"]
-        for iface in interfaces:
-            try:
-                result = subprocess.run(["ip", "route", "show", "default", "dev", iface], 
-                                      capture_output=True, text=True)
-                if result.returncode == 0:
-                    print(f"✅ Network interface: {iface}")
-                    # Get CIDR from route
-                    route = subprocess.run(["ip", "-4", "addr", "show", iface], 
-                                         capture_output=True, text=True)
-                    for line in route.stdout.split('\n'):
-                        if 'inet ' in line:
-                            cidr = line.split('inet ')[1].split('/')[0] + '/24'
-                            print(f"🎯 Auto-detected range: {cidr}")
-                            return cidr
-            except:
-                continue
-        
-        # Fallback to 192.168.1.0/24
-        print("🎯 Using default range: 192.168.1.0/24")
-        return "192.168.1.0/24"
+    def auto_network(self):
+        """Smart network detection"""
+        nets = ["192.168.1.0/24", "192.168.0.0/24", "10.0.0.0/24"]
+        try:
+            ip_out = subprocess.run(["hostname", "-I"], capture_output=True, text=True)
+            for ip in ip_out.stdout.strip().split():
+                net = ipaddress.IPv4Network(f"{ip}/24", strict=False)
+                if net.network_address in ipaddress.IPv4Network("192.168.0.0/16"):
+                    return str(net)
+        except:
+            pass
+        return nets[0]
     
-    def full_recon(self):
-        """Execute complete reconnaissance suite"""
+    def scan_all(self):
+        """Execute everything"""
         if self.target == "auto":
-            self.target = self.discover_network()
+            self.target = self.auto_network()
         
-        # 1. HOST DISCOVERY (-sn)
-        self.run_nmap(
-            ["-sn", "--disable-arp-ping", "-T4", self.target],
-            "host_discovery",
-            "Aggressive host discovery (no ARP)"
-        )
+        print(f"\n🌐 SCANNING {self.target}")
         
-        # 2. TOPOLOGY + QUICK SCAN
-        self.run_nmap(
-            ["-sn", "--traceroute", "-T4", self.target],
-            "topology_discovery", 
-            "Host discovery + traceroute"
-        )
+        # CORE SCANS
+        self.cmd(["-sn", "-T4"], "HOSTS", 120)           # Live hosts
+        self.cmd(["-PR", "-T4"], "ARP", 60)              # Local ARP
+        self.cmd(["-sS", "-T4", "-Pn"], "SYN", 180)      # SYN scan
+        self.cmd(["-sU", "--top-ports=20", "-T3"], "UDP", 240)  # UDP top20
+        self.cmd(["-sV", "--script=vuln", "-T4"], "VULN", 300)  # Vulns
+        self.cmd(["-O", "-T4"], "OS", 240)               # OS detect
         
-        # 3. FULL PORT SCAN + SERVICES + OS (-A)
-        self.run_nmap(
-            ["-A", "-T4", "--defeat-rst-ratelimit", "-Pn", self.target],
-            "aggressive_full",
-            "OS detection + services + scripts + traceroute (no ping)"
-        )
-        
-        # 4. MAC VENDOR + ARP SCAN (local network)
-        self.run_nmap(
-            ["-PR", "--script=broadcast-ping", "-T4", self.target],
-            "mac_arp",
-            "ARP + MAC vendor detection"
-        )
-        
-        # 5. UDP SCAN (top ports)
-        self.run_nmap(
-            ["-sU", "--top-ports", "100", "-T4", "-Pn", self.target],
-            "udp_top100",
-            "Top 100 UDP ports"
-        )
-        
-        # 6. VULNERABILITY SCAN
-        self.run_nmap(
-            ["-sV", "--script=vuln,exploit", "-T4", "-Pn", self.target],
-            "vulnerability_scan",
-            "Service version + vuln/exploit scripts"
-        )
-        
-        # 7. WEB ENUMERATION (if HTTP found)
-        self.run_nmap(
-            ["-sV", "--script=http-enum,http-vuln*", "-p80,443,8080", "-T4", self.target],
-            "web_enum",
-            "Web directory enumeration + vulns"
-        )
-        
-        self.generate_summary()
+        self.make_summary()
     
-    def generate_summary(self):
-        """Create executive summary"""
-        summary = f"""
-# 🔥 NMAP RECON SUMMARY - {self.timestamp}
-Target: {self.target}
-Output Directory: {self.output_dir}
+    def make_summary(self):
+        """Permission-safe summary"""
+        summary_path = self.output_dir / f"SUMMARY_{self.timestamp}.txt"
+        summary = f"""# ANGRYSCAN RESULTS {self.timestamp}
+TARGET: {self.target}
+DIR: {self.output_dir}
 
-## Key Files Generated:
-- host_discovery_*.nmap → LIVE HOSTS
-- aggressive_full_*.nmap → OS/SERVICES/SCRIPTS
-- vulnerability_scan_*.nmap → EXPLOITABLE SERVICES
-- udp_top100_*.nmap → UDP FINDINGS
-- web_enum_*.nmap → WEB VULNS
+LIVE HOSTS: cat {self.output_dir}/HOSTS_*.gnmap | grep Status: Up
+VULNS: grep -i vuln {self.output_dir}/VULN_*.nmap
+SERVICES: grep open {self.output_dir}/SYN_*.gnmap
 
-## QUICK NEXT STEPS:
-1. cat {self.output_dir}/host_discovery_*.nmap.grep | grep open
-2. grep -i "vuln\|exploit" {self.output_dir}/vulnerability_scan_*.nmap.nmap
-3. nmap -sC -sV -p- <TOP_HOST>  (deep dive top targets)
-
-## VISUALIZE:
-xsltproc {self.output_dir}/aggressive_full_*.xml -o recon.html
-firefox recon.html
-        """
+NEXT: nmap -sC -sV -p- <BEST_HOST>
+GUI: zenmap {self.output_dir}/OS_*.gnmap
+"""
         
-        with open(self.output_dir / f"EXECUTIVE_SUMMARY_{self.timestamp}.txt", "w") as f:
-            f.write(summary)
-        
-        print(f"\n📋 SUMMARY: {self.output_dir}/EXECUTIVE_SUMMARY_{self.timestamp}.txt")
-        print("🎨 Zenmap: sudo zenmap (GUI visualization)")
+        try:
+            with open(summary_path, "w") as f:
+                f.write(summary)
+            os.chmod(str(summary_path), 0o644)
+            print(f"\n📋 SUMMARY: {summary_path}")
+        except:
+            print(f"\n📋 SUMMARY CONTENT:\n{summary}")
 
 def main():
-    parser = argparse.ArgumentParser(description="🚀 Advanced Nmap Network Recon Suite")
-    parser.add_argument("target", nargs="?", default="auto", 
-                       help="IP/range (192.168.1.0/24) or 'auto'")
-    parser.add_argument("-o", "--output", default="nmap_recon",
-                       help="Output directory")
-    parser.add_argument("--quick", action="store_true",
-                       help="Quick scan only (top ports)")
-    
+    parser = argparse.ArgumentParser(description="🔥 ANGRYSCAN - Ultimate Nmap")
+    parser.add_argument("target", nargs="?", default="auto")
+    parser.add_argument("-o", "--out")
     args = parser.parse_args()
     
-    # Root check
-    if os.geteuid() != 0:
-        print("⚠️  Run as root for full capabilities: sudo python3 nmap_suite.py")
-    
-    scanner = AdvancedNmapScanner(args.target, args.output)
-    
-    if args.quick:
-        print("⚡ QUICK MODE")
-        scanner.run_nmap(["-F", "-T4", "-A", args.target], "quick_scan", "Fast top-100 + OS")
-    else:
-        scanner.full_recon()
+    AngryScan(args.target, args.out).scan_all()
 
 if __name__ == "__main__":
     main()
